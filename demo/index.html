@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Holdable Umbrella — Demo</title>
+    <style>
+      @import url(\"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap\");
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background: #0c1117;
+        color: #eef3f8;
+      }
+      #stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: #05070b;
+      }
+      #video,
+      #three {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
+      #hud {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(12, 17, 23, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 14px;
+        padding: 10px 14px;
+        backdrop-filter: blur(8px);
+      }
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #start {
+        background: #f4b400;
+        color: #1c1500;
+      }
+      #capture {
+        background: rgba(255, 255, 255, 0.1);
+        color: #eef3f8;
+      }
+      #status {
+        font-size: 0.85rem;
+        color: #a8b3c2;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="three"></canvas>
+      <div id="hud">
+        <button id="start">Start Camera</button>
+        <button id="capture" disabled>Capture</button>
+        <div id="status">Idle</div>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "https://unpkg.com/three@0.182.0/build/three.module.js";
+      import { GLTFLoader } from "https://unpkg.com/three@0.182.0/examples/jsm/loaders/GLTFLoader.js";
+      import { DRACOLoader } from "https://unpkg.com/three@0.182.0/examples/jsm/loaders/DRACOLoader.js";
+      import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs";
+
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("three");
+      const startButton = document.getElementById("start");
+      const captureButton = document.getElementById("capture");
+      const statusEl = document.getElementById("status");
+
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
+      camera.position.set(0, 0, 0);
+      camera.lookAt(0, 0, -1);
+
+      const anchorRoot = new THREE.Group();
+      scene.add(anchorRoot);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x233146, 1.0));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      keyLight.position.set(1, 2, 2);
+      scene.add(keyLight);
+
+      const occlusionCanvas = document.createElement("canvas");
+      const occlusionCtx = occlusionCanvas.getContext("2d", { willReadFrequently: true });
+      const occlusionTexture = new THREE.CanvasTexture(occlusionCanvas);
+      const occlusionMat = new THREE.MeshBasicMaterial({
+        colorWrite: false,
+        depthWrite: true,
+        transparent: true,
+        alphaTest: 0.6,
+        alphaMap: occlusionTexture,
+      });
+      const occlusionMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), occlusionMat);
+      occlusionMesh.frustumCulled = false;
+      scene.add(occlusionMesh);
+
+      const smoother = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), init: false };
+      const modelOffset = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, Math.PI));
+
+      let landmarker;
+      let layout = null;
+      let scaleRef = null;
+      let scale = 1;
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function computeLayout() {
+        const rect = document.getElementById("stage").getBoundingClientRect();
+        const scaleFactor = Math.max(rect.width / video.videoWidth, rect.height / video.videoHeight);
+        layout = {
+          width: rect.width,
+          height: rect.height,
+          scale: scaleFactor,
+          displayWidth: video.videoWidth * scaleFactor,
+          displayHeight: video.videoHeight * scaleFactor,
+          offsetX: (rect.width - video.videoWidth * scaleFactor) * 0.5,
+          offsetY: (rect.height - video.videoHeight * scaleFactor) * 0.5,
+        };
+
+        renderer.setSize(rect.width, rect.height, false);
+        camera.aspect = rect.width / rect.height;
+        camera.updateProjectionMatrix();
+      }
+
+      function buildFallbackUmbrella() {
+        const group = new THREE.Group();
+        const canopy = new THREE.Mesh(
+          new THREE.ConeGeometry(0.25, 0.15, 24, 1, true),
+          new THREE.MeshStandardMaterial({ color: 0x2f6bff, roughness: 0.4, metalness: 0.1 })
+        );
+        canopy.position.set(0, 0.08, 0);
+        const handle = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.01, 0.012, 0.28, 12),
+          new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.7 })
+        );
+        handle.position.set(0, -0.08, 0);
+        group.add(canopy, handle);
+        return group;
+      }
+
+      async function loadModel() {
+        const loader = new GLTFLoader();
+        const draco = new DRACOLoader();
+        draco.setDecoderPath("https://cdn.jsdelivr.net/npm/draco3d@1.5.7/");
+        loader.setDRACOLoader(draco);
+
+        return new Promise((resolve) => {
+          loader.load(
+            "../assets/umbrella.glb",
+            (gltf) => resolve(gltf.scene),
+            undefined,
+            () => resolve(buildFallbackUmbrella())
+          );
+        });
+      }
+
+      function updateOcclusion(mask) {
+        if (!layout || !mask) {
+          occlusionMesh.visible = false;
+          return;
+        }
+
+        occlusionCanvas.width = layout.width;
+        occlusionCanvas.height = layout.height;
+
+        const rawCanvas = document.createElement("canvas");
+        rawCanvas.width = mask.width;
+        rawCanvas.height = mask.height;
+        const rawCtx = rawCanvas.getContext("2d", { willReadFrequently: true });
+        const imageData = rawCtx.createImageData(mask.width, mask.height);
+        const data = imageData.data;
+        const buffer = mask.getAsFloat32Array ? mask.getAsFloat32Array() : mask.getAsUint8Array();
+        const isFloat = !!mask.getAsFloat32Array;
+
+        for (let i = 0; i < mask.width * mask.height; i++) {
+          const v = isFloat ? buffer[i] * 255 : buffer[i];
+          const o = i * 4;
+          data[o] = v;
+          data[o + 1] = v;
+          data[o + 2] = v;
+          data[o + 3] = 255;
+        }
+
+        rawCtx.putImageData(imageData, 0, 0);
+        occlusionCtx.clearRect(0, 0, layout.width, layout.height);
+        occlusionCtx.drawImage(
+          rawCanvas,
+          0,
+          0,
+          mask.width,
+          mask.height,
+          layout.offsetX,
+          layout.offsetY,
+          layout.displayWidth,
+          layout.displayHeight
+        );
+        occlusionTexture.needsUpdate = true;
+        occlusionMesh.visible = true;
+      }
+
+      function updateOcclusionPlane(depth) {
+        const distance = Math.max(depth - 0.015, camera.near + 0.01);
+        const height = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+        const width = height * camera.aspect;
+        occlusionMesh.scale.set(width, height, 1);
+        occlusionMesh.position.set(0, 0, -distance);
+      }
+
+      function computeAnchor(landmarks) {
+        if (!layout || !landmarks || landmarks.length < 18) return null;
+        const wrist = landmarks[0];
+        const index = landmarks[5];
+        const middle = landmarks[9];
+        const pinky = landmarks[17];
+
+        const palmCenter = {
+          x: (wrist.x + index.x + middle.x + pinky.x) / 4,
+          y: (wrist.y + index.y + middle.y + pinky.y) / 4,
+        };
+
+        const xPx = index.x * video.videoWidth * layout.scale + layout.offsetX;
+        const yPx = index.y * video.videoHeight * layout.scale + layout.offsetY;
+        const x2Px = pinky.x * video.videoWidth * layout.scale + layout.offsetX;
+        const y2Px = pinky.y * video.videoHeight * layout.scale + layout.offsetY;
+        const palmWidthPx = Math.hypot(xPx - x2Px, yPx - y2Px);
+
+        const focalPx = (layout.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+        const depth = Math.min(Math.max((0.085 * focalPx) / Math.max(palmWidthPx, 1), 0.15), 1.2);
+
+        const ndc = new THREE.Vector3(palmCenter.x * 2 - 1, -(palmCenter.y * 2 - 1), 0.5);
+        const worldPoint = ndc.unproject(camera);
+        const dir = worldPoint.sub(camera.position).normalize();
+        const position = camera.position.clone().add(dir.multiplyScalar(depth));
+
+        const xAxis = new THREE.Vector3(index.x - pinky.x, index.y - pinky.y, index.z - pinky.z).normalize();
+        const yAxis = new THREE.Vector3(middle.x - wrist.x, middle.y - wrist.y, middle.z - wrist.z).normalize();
+        const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+        const orthoY = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+        const basis = new THREE.Matrix4().makeBasis(xAxis, orthoY, zAxis);
+        const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+        return { position, quat, depth, palmWidthPx };
+      }
+
+      function smoothPose(targetPos, targetQuat, timeMs) {
+        if (!smoother.init) {
+          smoother.pos.copy(targetPos);
+          smoother.quat.copy(targetQuat);
+          smoother.init = true;
+        }
+        smoother.pos.lerp(targetPos, 0.2);
+        smoother.quat.slerp(targetQuat, 0.25);
+        return { pos: smoother.pos, quat: smoother.quat };
+      }
+
+      async function start() {
+        setStatus("Requesting camera...");
+        startButton.disabled = true;
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        video.srcObject = stream;
+        await video.play();
+        computeLayout();
+
+        const fileset = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm"
+        );
+        landmarker = await HandLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 1,
+          outputSegmentationMasks: true,
+        });
+
+        const model = await loadModel();
+        anchorRoot.add(model);
+
+        captureButton.disabled = false;
+        setStatus("Tracking");
+        requestAnimationFrame(renderLoop);
+      }
+
+      let lastDetect = 0;
+      function renderLoop(timeMs) {
+        if (!landmarker) return;
+
+        if (timeMs - lastDetect > 40) {
+          const result = landmarker.detectForVideo(video, timeMs);
+          lastDetect = timeMs;
+
+          const pose = result.landmarks?.[0];
+          if (pose) {
+            const anchor = computeAnchor(pose);
+            if (anchor) {
+              if (!scaleRef && anchor.palmWidthPx) scaleRef = anchor.palmWidthPx;
+              scale = scaleRef ? Math.min(Math.max(anchor.palmWidthPx / scaleRef, 0.85), 1.15) : 1;
+              const smoothed = smoothPose(anchor.position, anchor.quat, timeMs);
+              anchorRoot.position.copy(smoothed.pos);
+              anchorRoot.quaternion.copy(smoothed.quat).multiply(modelOffset);
+              anchorRoot.scale.setScalar(scale);
+              updateOcclusion(result.segmentationMasks?.[0]);
+              updateOcclusionPlane(anchor.depth);
+              anchorRoot.visible = true;
+            }
+          } else {
+            anchorRoot.visible = false;
+            occlusionMesh.visible = false;
+          }
+        }
+
+        renderer.render(scene, camera);
+        requestAnimationFrame(renderLoop);
+      }
+
+      function capture() {
+        if (!layout) return;
+        const width = layout.width * devicePixelRatio;
+        const height = layout.height * devicePixelRatio;
+        const out = document.createElement("canvas");
+        out.width = width;
+        out.height = height;
+        const ctx = out.getContext("2d");
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, -width, 0, width, height);
+        ctx.drawImage(renderer.domElement, -width, 0, width, height);
+        ctx.restore();
+        const link = document.createElement("a");
+        link.href = out.toDataURL("image/png");
+        link.download = "umbrella-demo.png";
+        link.click();
+      }
+
+      window.addEventListener("resize", () => {
+        if (!video.videoWidth) return;
+        computeLayout();
+      });
+
+      startButton.addEventListener("click", start);
+      captureButton.addEventListener("click", capture);
+    </script>
+  </body>
+</html>

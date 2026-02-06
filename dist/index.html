@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0f141a" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Holdable Umbrella" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="description"
+      content="Hold a virtual umbrella in your hand using WebAR and real-time hand tracking — no app install required."
+    />
+
+    <!-- Open Graph / Social -->
+    <meta property="og:title" content="Holdable Umbrella — WebAR" />
+    <meta
+      property="og:description"
+      content="Hold a virtual umbrella in your hand using WebAR and real-time hand tracking."
+    />
+    <meta property="og:type" content="website" />
+
+    <title>Holdable Umbrella — WebAR</title>
+
+
+    <!-- Preconnect to critical third-party origins -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <script type="module" crossorigin src="/assets/index-B5t7ZAmv.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CdXDTmJI.css">
+  </head>
+  <body>
+    <!-- Skip-link for keyboard / screen-reader users -->
+    <a href="#stage" class="skip-link">Skip to AR view</a>
+
+    <noscript>
+      <div style="padding:2rem;text-align:center;color:#eef3f8;font-family:sans-serif">
+        <h1>JavaScript Required</h1>
+        <p>This WebAR experience requires JavaScript. Please enable it and reload.</p>
+      </div>
+    </noscript>
+
+    <div id="app" role="application" aria-label="Holdable Umbrella WebAR">
+      <header id="brand">
+        <div class="logo" aria-hidden="true">Holdable Umbrella</div>
+        <div class="tag" aria-hidden="true">Hand-tracked WebAR</div>
+      </header>
+
+      <main id="stage" role="img" aria-label="Augmented reality camera view">
+        <video id="video" autoplay playsinline muted disablepictureinpicture aria-hidden="true"></video>
+        <canvas id="three" aria-hidden="true"></canvas>
+        <canvas id="debug" aria-hidden="true"></canvas>
+        <div id="hint" role="status" aria-live="polite">Tap 'Start Camera' to begin</div>
+      </main>
+
+      <footer id="hud" role="toolbar" aria-label="AR controls">
+        <button
+          id="start"
+          class="primary"
+          type="button"
+          aria-label="Start camera and hand tracking"
+        >
+          Start Camera
+        </button>
+        <button
+          id="switch-camera"
+          class="ghost"
+          type="button"
+          disabled
+          aria-label="Switch between front and back camera"
+        >
+          &#x1F504;
+        </button>
+        <button
+          id="capture"
+          class="ghost"
+          type="button"
+          disabled
+          aria-label="Capture photo of AR scene"
+        >
+          Capture
+        </button>
+        <button
+          id="toggle-debug"
+          class="ghost"
+          type="button"
+          aria-pressed="false"
+          aria-label="Toggle debug overlay"
+        >
+          Debug
+        </button>
+        <div id="status" role="status" aria-live="polite" data-state="idle">Ready</div>
+      </footer>
+    </div>
+
+  </body>
+</html>

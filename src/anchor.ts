@@ -226,27 +226,31 @@ function computeShaftDirection(
   landmarks: readonly Landmark[],
   worldLandmarks: readonly Landmark[] | undefined,
 ): THREE.Vector3 {
-  const lm =
-    worldLandmarks && worldLandmarks.length >= EXPECTED_LANDMARK_COUNT
-      ? worldLandmarks
-      : landmarks;
+  // Use MIDDLE_MCP (landmark 9) as the single target — it sits at the
+  // centre of the knuckle ridge and stays stable even when fingers curl
+  // into a fist.  Averaging INDEX/MIDDLE/PINKY MCPs caused the direction
+  // to skew because curled-finger MCP detections shift unpredictably.
 
-  const wrist = lm[LANDMARK.WRIST];
-  const indexMcp = lm[LANDMARK.INDEX_MCP];
-  const middleMcp = lm[LANDMARK.MIDDLE_MCP];
-  const pinkyMcp = lm[LANDMARK.PINKY_MCP];
-
-  averageLandmarksInto(_lmAvg, [indexMcp, middleMcp, pinkyMcp]);
-
-  // MediaPipe uses Y-down (y=0 top, y=1 bottom) for both normalised
-  // and world landmarks, while Three.js uses Y-up.  Negate Y so that
-  // a hand held with fingers pointing up produces a shaft direction
-  // that points +Y in Three.js (canopy above handle).
-  _handDir.set(
-    _lmAvg.x - wrist.x,
-    -((_lmAvg.y - wrist.y)),   // Y negated: MediaPipe Y-down → Three.js Y-up
-    _lmAvg.z - wrist.z,
-  );
+  if (worldLandmarks && worldLandmarks.length >= EXPECTED_LANDMARK_COUNT) {
+    // World landmarks are in metres, Y-down — negate Y, zero Z.
+    // Z (depth toward camera) is noisy and causes the canopy to tilt
+    // toward the viewer, showing inner rods.  Depth is handled
+    // separately by the depth-estimation pipeline.
+    const wW = worldLandmarks[LANDMARK.WRIST];
+    const mW = worldLandmarks[LANDMARK.MIDDLE_MCP];
+    _handDir.set(mW.x - wW.x, -(mW.y - wW.y), 0);
+  } else {
+    // Fallback: image-space landmarks.  Y is inverted (MediaPipe Y-down
+    // → Three.js Y-up).  Z is in different units and very noisy for a
+    // closed fist, so we drop it entirely.
+    const wrist = landmarks[LANDMARK.WRIST];
+    const middleMcp = landmarks[LANDMARK.MIDDLE_MCP];
+    _handDir.set(
+      middleMcp.x - wrist.x,
+      -(middleMcp.y - wrist.y),
+      0,
+    );
+  }
   safeNormalize(_handDir);
 
   _worldUpVec.set(WORLD_UP.x, WORLD_UP.y, WORLD_UP.z).normalize();

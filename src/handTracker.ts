@@ -210,8 +210,10 @@ function detectFingerCurl(landmarks: readonly Landmark[]): FingerState {
     const tipToPalm = landmarkDistance(tipLm, palmCenter) / palmSize;
     const tipToPip = landmarkDistance(tipLm, pipLm) / palmSize;
 
-    const curlThreshold = FINGER_CURL_THRESHOLD * 4;
-    const palmThreshold = FINGER_CURL_THRESHOLD * 3;
+    // Relaxed thresholds (5x instead of 4x) to catch back-of-hand fists
+    // where landmark positions are noisier.
+    const curlThreshold = FINGER_CURL_THRESHOLD * 5;
+    const palmThreshold = FINGER_CURL_THRESHOLD * 4;
 
     return (
       tipToMcp < curlThreshold ||
@@ -228,7 +230,31 @@ function detectFingerCurl(landmarks: readonly Landmark[]): FingerState {
   const thumbToIndex = landmarkDistance(thumbTip, indexMcp) / palmSize;
   const thumbToIp = landmarkDistance(thumbTip, thumbIp) / palmSize;
   const thumbCurled =
-    thumbToIndex < THUMB_CURL_THRESHOLD * 4 || thumbToIp < THUMB_CURL_THRESHOLD * 2;
+    thumbToIndex < THUMB_CURL_THRESHOLD * 5 || thumbToIp < THUMB_CURL_THRESHOLD * 2.5;
+
+  // ── Compactness check ──────────────────────────────────────────────────
+  // When viewing the back of a fist, individual curl detection can fail
+  // because MediaPipe can't accurately place tips behind the knuckles.
+  // Instead, check if ALL fingertips cluster tightly together — a strong
+  // indicator of a closed fist from any viewing angle.
+  const tips = [
+    landmarks[LANDMARK.INDEX_TIP],
+    landmarks[LANDMARK.MIDDLE_TIP],
+    landmarks[LANDMARK.RING_TIP],
+    landmarks[LANDMARK.PINKY_TIP],
+  ];
+  let maxTipSpread = 0;
+  for (let i = 0; i < tips.length; i++) {
+    for (let j = i + 1; j < tips.length; j++) {
+      maxTipSpread = Math.max(maxTipSpread, landmarkDistance2D(tips[i], tips[j]));
+    }
+  }
+  const compactFist = (maxTipSpread / palmSize) < 0.6;
+
+  if (compactFist) {
+    // All tips are bunched together → strong fist signal from any angle.
+    return { index: true, middle: true, ring: true, pinky: true, thumb: thumbCurled };
+  }
 
   return {
     index: isFingerCurled(LANDMARK.INDEX_TIP, LANDMARK.INDEX_PIP, LANDMARK.INDEX_MCP),
@@ -312,7 +338,7 @@ export class HandTracker implements Disposable {
   constructor(
     private readonly landmarker: HandLandmarker,
     private readonly fps = HAND_TRACK_FPS,
-  ) {}
+  ) { }
 
   /** Ratio of recent frames where a hand was detected. */
   get detectionRate(): number {

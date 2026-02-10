@@ -168,6 +168,19 @@ function applyCanvasBlur(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Temporal Blending — persistent buffer for cross-frame smoothing
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _prevMask: Float32Array | null = null;
+const TEMPORAL_BLEND_ALPHA = 0.35; // weight of the new frame (lower = smoother but laggier)
+
+/** Hermite smooth-step: suppresses noise below `edge0`, saturates above `edge1`. */
+function smoothStep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Update Occlusion Mask
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -197,18 +210,28 @@ export function updateOcclusionMask(
   const data = imageData.data;
   const pixelCount = mask.width * mask.height;
 
-  // Boost the mask signal so that even soft/faint hand-edge pixels from
-  // MediaPipe are promoted above the alpha-test threshold.  A 1.4x boost
-  // ensures finger-level coverage without bleeding too far beyond the hand.
-  const MASK_BOOST = 1.4;
+  // Allocate / resize temporal buffer if needed.
+  if (!_prevMask || _prevMask.length !== pixelCount) {
+    _prevMask = new Float32Array(pixelCount);
+  }
 
   for (let i = 0; i < pixelCount; i++) {
-    const value = floatMask
-      ? Math.min(255, floatMask[i] * 255 * MASK_BOOST)
+    // Read raw confidence value [0..1].
+    const raw = floatMask
+      ? floatMask[i]
       : byteMask
-        ? Math.min(255, byteMask[i] * MASK_BOOST)
+        ? byteMask[i] / 255
         : 0;
 
+    // Smooth-step: suppresses sub-0.12 noise, saturates above 0.55.
+    // This creates a soft gradient at hair/skin edges instead of a hard cutoff.
+    const stepped = smoothStep(0.12, 0.55, raw);
+
+    // Temporal blend: combine with previous frame to eliminate flicker.
+    const blended = _prevMask[i] * (1 - TEMPORAL_BLEND_ALPHA) + stepped * TEMPORAL_BLEND_ALPHA;
+    _prevMask[i] = blended;
+
+    const value = Math.min(255, blended * 255);
     const offset = i * 4;
     data[offset] = value;
     data[offset + 1] = value;

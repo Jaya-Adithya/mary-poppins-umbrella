@@ -25,7 +25,7 @@ export const MODEL_URL = "/umbrella.glb";
 /** Base scale multiplier applied to the loaded model.
  *  A real umbrella canopy spans ~100cm.  0.95 keeps the model close to
  *  authored size so it reads as a real umbrella at arm's length. */
-export const MODEL_SCALE = 0.95;
+export const MODEL_SCALE = 2.0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VIDEO & DISPLAY
@@ -118,10 +118,10 @@ export const MODEL_ROTATION_OFFSET = Object.freeze({ x: 0, y: 0, z: 0 });
 /**
  * How much the umbrella follows hand tilt.
  * 0 = always vertical, 1 = fully follow hand.
- * Real-world umbrella holding is mostly upright with gentle sway,
- * so 0.55 gives a natural feel without excessive wobble.
+ * 0.92 makes the umbrella follow the fist almost 1:1 while
+ * retaining a small 8% world-up bias for stability.
  */
-export const HAND_TILT_INFLUENCE = 0.82;
+export const HAND_TILT_INFLUENCE = 0.92;
 
 /** World up direction used for orientation blending. */
 export const WORLD_UP = Object.freeze({ x: 0, y: 1, z: 0 });
@@ -143,18 +143,18 @@ export const GRIP_CONFIDENCE_THRESHOLD = 0.5;
 // ─────────────────────────────────────────────────────────────────────────────
 export const OCCLUSION_ENABLED = true;
 /** Lower threshold so softer mask edges still contribute to occlusion. */
-export const OCCLUSION_ALPHA_TEST = 0.18;
+export const OCCLUSION_ALPHA_TEST = 0.08;
 /** Depth bias must be LARGE — the umbrella canopy is a 3D curved surface
  *  that can extend 8-15cm toward the camera from the grip point.  A small
  *  bias causes canopy polygons closer than the plane to slip through the
  *  depth test and render ON TOP of the person.  12cm safely covers the
  *  canopy's forward extent.  The video feed is unaffected because it is a
  *  CSS background, not a Three.js depth-tested object. */
-export const OCCLUSION_DEPTH_BIAS = 0.12;
+export const OCCLUSION_DEPTH_BIAS = 0.04;
 export const OCCLUSION_FEATHER_ENABLED = true;
 /** Slight blur softens the body silhouette edge for a natural blend.
  *  4px at mask resolution (256×144 typical) ≈ ~8px on screen. */
-export const OCCLUSION_FEATHER_RADIUS = 4;
+export const OCCLUSION_FEATHER_RADIUS = 6;
 export const OCCLUSION_STRENGTH = 1.0;
 export const MULTI_LAYER_OCCLUSION = false;
 export const FINGER_DEPTH_OFFSET = 0.02;
@@ -209,7 +209,7 @@ export const GRIP_OCCLUDER_SHAPE = Object.freeze({ x: 1.2, y: 1.5, z: 1.1 });
 export const BODY_OCCLUSION_ENABLED = true;
 /** Body segmenter runs at a lower FPS than hand tracking to save GPU/battery.
  *  The latest mask is cached and reused between frames. */
-export const BODY_SEGMENTER_FPS = IS_MOBILE ? 8 : 12;
+export const BODY_SEGMENTER_FPS = IS_MOBILE ? 12 : 18;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CAMERA SWITCHING
